@@ -12,7 +12,7 @@ read(config_file, *) x1
 read(config_file, *) x2
 read(config_file, *) resolution
 
-
+close(config_file)
 
 call cpu_time(t1)
 
@@ -30,7 +30,7 @@ call central_difs(  y       = function_values, &
 call cpu_time(t2)
 
 print*, "Time elapsed: ", (t2 - t1)
-print*, "Time per Grid Point: ", (t2 - t1) / (((x1 - x2) / resolution) + 1d0 )
+print*, "Time per Grid Point: ", (t2 - t1) / (((x2 - x1) / resolution) + 1d0 )
 
 call quick_plot(grid, function_values, derivative)
 
@@ -93,7 +93,7 @@ end subroutine quick_plot
 subroutine make_grid(x_start, x_end, grid_resolution, grid_out)
     implicit none
 
-    real(8),  intent(in)                :: x_start, x_end, grid_resolution
+    real(8), intent(in)                 :: x_start, x_end, grid_resolution
     real(8), intent(inout), allocatable :: grid_out(:)
     integer(8)                          :: i, number_of_points
 
@@ -117,8 +117,6 @@ subroutine forward_difs(x, y, h, y_prime)
     real(8)                             :: h
     integer(8)                          :: n_elements
     
-    !allocate(x_h(size(x)))
-    !allocate(y_h(size(x)))
     allocate(y_prime(size(x)))
 
     n_elements = size(x)
@@ -155,16 +153,6 @@ subroutine central_difs(y, h, y_prime)
     
 
 end subroutine central_difs
-
-
-
-pure function my_function(x_in) result(f)
-    real(8), intent(in) :: x_in(:)
-    real(8)             :: f(size(x_in))
-
-    f = sin(x_in)
-
-end function my_function
 
 
 end program differenzieren
