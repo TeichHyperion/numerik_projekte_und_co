@@ -1,10 +1,10 @@
-
 program differenzieren
 
 implicit none
 integer                 :: config_file
 real(8)                 :: x1, x2, resolution, t1, t2
-real(8), allocatable    :: grid(:), function_values(:), derivative(:)
+real(8), allocatable    :: grid(:), function_values(:), derivative(:), derivative_old(:)
+logical                 :: converged
 
 open(newunit = config_file, file= "diff_config", status="old")
 
@@ -22,13 +22,28 @@ call make_grid(x_start          = x1, &
                grid_resolution  = resolution, &
                grid_out         = grid) 
 
-call double_grid(grid, resolution)
-
 function_values = vector_function(grid)
 
 call central_difs(  y       = function_values, &
                     h       = resolution, &
                     y_prime = derivative)
+
+converged = .false.
+
+do while (.not. converged) 
+    
+    call move_alloc(from=derivative, to= derivative_old)
+    call double_grid(grid, resolution)
+
+    function_values = vector_function(grid)
+
+    call central_difs(  y       = function_values, &
+                        h       = resolution, &
+                        y_prime = derivative)
+
+    converged = check_convergence(derivative_old, derivative, 10d0**(-4d0))
+    print*, converged
+end do
 
 
 
@@ -91,20 +106,23 @@ subroutine double_grid(grid_inout, grid_resolution)
 end subroutine
 
 
-logical pure function check_convergence(y_prime_old, y_prime_new, threshhold) result(converged)
+logical function check_convergence(y_prime_old, y_prime_new, threshhold) result(convergence)
     real(8), allocatable, intent(in)    :: y_prime_old(:), y_prime_new(:)
+    real(8)                             :: rel_error, epsilon_val
+    integer(8)                          :: new_size, old_size
     real(8), intent(in)                 :: threshhold
-    real(8), allocatable                :: rel_error(:)
 
 
-    allocate(rel_error(size(y_prime_old)))
+    new_size = size(y_prime_new)
+    old_size = size(y_prime_old)
 
-    rel_error = (y_prime_old -y_prime_new) / (y_prime_old)
-    converged = .false.
-    if (maxval(rel_error) < threshhold) then
-        converged = .true.
+    convergence = .false.
+    rel_error = maxval( abs(y_prime_new(3:new_size-2:2) - y_prime_old(2:old_size-1) ) / (y_prime_old(2:old_size-1) + epsilon(epsilon_val) ) )
+    
+    if (rel_error < threshhold) then
+        convergence = .true.
+        print*, "Convergence: ", rel_error
     end if
-
 end function 
 
 
@@ -123,11 +141,11 @@ subroutine quick_plot(x, y1, y2)
     real(8), allocatable    :: y3(:)
     integer                 :: i, unit_dn
 
-    allocate(y3(size(x)))
+    !allocate(y3(size(x)))
 
     ! 1. Write data to a temporary file
     open(newunit=unit_dn, file='plot_data.dat', status='replace')
-    y3= cos(x)
+    y3 = cos(x)
 
     do i = 1, size(x)
         write(unit_dn, *) x(i), y1(i), y2(i), y3(i)
@@ -198,10 +216,10 @@ subroutine central_difs(y, h, y_prime)
     y_prime(2:n_elements-1) = (y(3:n_elements) - y(:n_elements-2)) / (2d0*h)
 
     !fix last element with backward diff
-   ! y_prime(n_elements) = (y(n_elements) - y(n_elements-1)) / h
+    y_prime(n_elements) = (y(n_elements) - y(n_elements-1)) / h
 
     !fix first element with forward diff
-   ! y_prime(1) = (y(2) - y(1)) / h
+    y_prime(1) = (y(2) - y(1)) / h
     
 
 end subroutine central_difs
