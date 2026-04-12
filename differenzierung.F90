@@ -16,16 +16,22 @@ close(config_file)
 
 call cpu_time(t1)
 
+
 call make_grid(x_start          = x1, &
                x_end            = x2, &
                grid_resolution  = resolution, &
                grid_out         = grid) 
+
+call double_grid(grid, resolution)
 
 function_values = vector_function(grid)
 
 call central_difs(  y       = function_values, &
                     h       = resolution, &
                     y_prime = derivative)
+
+
+
 
 call cpu_time(t2)
 
@@ -56,7 +62,36 @@ call quick_plot(grid, function_values, derivative)
 
 contains 
 
-logical function check_convergence(y_prime_old, y_prime_new, threshhold) result(converged)
+subroutine double_grid(grid_inout, grid_resolution)
+    real(8), allocatable, intent(inout)    :: grid_inout(:)
+    real(8), allocatable                   :: grid_old(:)
+
+    !real(8), allocatable, intent(out)   :: grid_out(:)
+    real(8), intent(inout)              :: grid_resolution
+    real(8)                             :: x_start, x_end
+    integer(8)                          :: n_new, n_old, i
+
+    grid_resolution = grid_resolution * 0.5d0
+
+    call move_alloc(from=grid_inout, to=grid_old)
+
+    x_start = grid_old(1)
+    x_end   = grid_old(size(grid_old))
+
+    n_old = size(grid_old)
+    n_new = size(grid_old) * 2 - 1
+
+    print * , "grid points: ", n_new
+
+    allocate(grid_inout(n_new))
+
+    grid_inout(1: size(grid_inout): 2) =  grid_old(1 : n_old)
+    grid_inout(2: size(grid_inout): 2) = (grid_old(2 : n_old) + grid_old(1 : n_old-1) ) / 2d0
+
+end subroutine
+
+
+logical pure function check_convergence(y_prime_old, y_prime_new, threshhold) result(converged)
     real(8), allocatable, intent(in)    :: y_prime_old(:), y_prime_new(:)
     real(8), intent(in)                 :: threshhold
     real(8), allocatable                :: rel_error(:)
@@ -111,7 +146,7 @@ subroutine make_grid(x_start, x_end, grid_resolution, grid_out)
     implicit none
 
     real(8), intent(in)                 :: x_start, x_end, grid_resolution
-    real(8), intent(inout), allocatable :: grid_out(:)
+    real(8), intent(out), allocatable   :: grid_out(:)
     integer(8)                          :: i, number_of_points
 
 
@@ -157,16 +192,16 @@ subroutine central_difs(y, h, y_prime)
     allocate(y_prime(size(y)))
 
     n_elements = size(y)
-
+    y_prime = 0 
 
     ! first element to calculate is i=2. so we need i= 3 and i=1. Last one is i = n-1 so we need i=n and i=n-2
     y_prime(2:n_elements-1) = (y(3:n_elements) - y(:n_elements-2)) / (2d0*h)
 
     !fix last element with backward diff
-    y_prime(n_elements) = (y(n_elements) - y(n_elements-1)) / h
+   ! y_prime(n_elements) = (y(n_elements) - y(n_elements-1)) / h
 
     !fix first element with forward diff
-    y_prime(1) = (y(2) - y(1)) / h
+   ! y_prime(1) = (y(2) - y(1)) / h
     
 
 end subroutine central_difs
