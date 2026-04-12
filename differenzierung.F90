@@ -2,9 +2,10 @@ program differenzieren
 
 implicit none
 integer                 :: config_file
-real(8)                 :: x1, x2, resolution, t1, t2, a_tol_exp, r_tol_exp
+real(8)                 :: x1, x2, resolution, a_tol_exp, r_tol_exp
 real(8), allocatable    :: grid(:), function_values(:), derivative(:), derivative_converged(:)
 logical                 :: converged
+integer(8)              :: tick_start, tick_end, tick_rate
 
 open(newunit = config_file, file= "diff_config", status="old")
 
@@ -16,15 +17,15 @@ read(config_file, *) r_tol_exp
 
 close(config_file)
 
-call cpu_time(t1)
-
+call system_clock(count_rate=tick_rate)
+call system_clock(count=tick_start)
 
 call make_grid(x_start          = x1, &
                x_end            = x2, &
                grid_resolution  = resolution, &
                grid_out         = grid) 
 
-function_values = vector_function(grid) ! this is ~5% faster then wraping in a subroutine. Should i unwrap the others to? 
+function_values = vector_function(grid) ! this is ~5% faster then wraping in a subroutine. Should i unwrap the others to? no
 
 call central_difs(  y       = function_values, &
                     h       = resolution, &
@@ -41,10 +42,10 @@ call converge_derivative(   grid_inout          = grid , &
 
 
 
-call cpu_time(t2)
+call system_clock(count=tick_end)
 
-print*, "Time elapsed: ", (t2 - t1)
-print*, "Time per Grid Point: ", (t2 - t1) / (((x2 - x1) / resolution) + 1d0 )
+print*, "Time elapsed: ", (tick_end - tick_start) / real(tick_rate, 8)
+print*, "Time per Grid Point: ", (tick_end - tick_start) / (((x2 - x1) / resolution) + 1d0 ) / real(tick_rate, 8)
 
 call quick_plot(grid, function_values, derivative_converged)
 
@@ -96,9 +97,8 @@ subroutine converge_derivative(grid_inout, resolution_current, derivative_in, ab
         end if
 
         call move_alloc(from=derivative_working, to= derivative_old)
-        call double_grid_function(grid_inout, resolution_current, function_values)
 
-        !function_values = vector_function(grid_inout)
+        call double_grid_function(grid_inout, resolution_current, function_values) ! there is no noticable benefit moving the double_function back out into a function  
 
         call central_difs(  y       = function_values, &
                             h       = resolution_current, &

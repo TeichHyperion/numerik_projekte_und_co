@@ -1,5 +1,5 @@
 -5       ! lower bound
  5       ! lower bound
  0.1     ! intitial resolution
- -6 ! absolute tolerance exponent
- -6 ! relative tolerance exponent
+ -7 ! absolute tolerance exponent
+ -7 ! relative tolerance exponent
