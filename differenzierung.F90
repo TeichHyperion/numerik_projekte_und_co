@@ -56,6 +56,23 @@ call quick_plot(grid, function_values, derivative)
 
 contains 
 
+logical function check_convergence(y_prime_old, y_prime_new, threshhold) result(converged)
+    real(8), allocatable, intent(in)    :: y_prime_old(:), y_prime_new(:)
+    real(8), intent(in)                 :: threshhold
+    real(8), allocatable                :: rel_error(:)
+
+
+    allocate(rel_error(size(y_prime_old)))
+
+    rel_error = (y_prime_old -y_prime_new) / (y_prime_old)
+    converged = .false.
+    if (maxval(rel_error) < threshhold) then
+        converged = .true.
+    end if
+
+end function 
+
+
 elemental function vector_function(x_in) result(f)
     implicit none
 
