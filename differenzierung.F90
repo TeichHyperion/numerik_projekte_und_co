@@ -6,13 +6,15 @@ implicit none
 integer                 :: config_file
 real(dp)                :: x1, x2, resolution, a_tol_exp, r_tol_exp
 real(dp), allocatable   :: grid(:), function_values(:), derivative(:), derivative_converged(:)
-integer(8)              :: tick_start, tick_end, tick_rate, config_io
+integer(8)              :: tick_start, tick_end, tick_rate, config_io, n_grid_points
+integer                 :: grid_type
 
 open(newunit = config_file, file= "diff_config", status="old", iostat=config_io)
 
 read(config_file, *) x1
 read(config_file, *) x2
-read(config_file, *) resolution
+read(config_file, *) grid_type
+read(config_file, *) n_grid_points
 read(config_file, *) a_tol_exp
 read(config_file, *) r_tol_exp
 
@@ -21,33 +23,43 @@ close(config_file)
 call system_clock(count_rate=tick_rate)
 call system_clock(count=tick_start)
 
-call make_grid(x_start          = x1, &
-               x_end            = x2, &
-               grid_resolution  = resolution, &
-               grid_out         = grid) 
+call make_grid( x_start             = x1, &
+                x_end               = x2, &
+                number_grid_points  = n_grid_points, &
+                grid_type_in        = grid_type, &
+                grid_out            = grid)
+
+print*, grid(1)
+print*, grid(size(grid))
 
 function_values = vector_function(grid) ! this is ~5% faster then wraping in a subroutine. Should i unwrap the others to? no
 
 call central_difs(  y       = function_values, &
-                    h       = resolution, &
+                    grid_in = grid ,&
+                   ! h       = resolution, &
                     y_prime = derivative)
                     ! 15% faster as subroutine: Time per Grid Point:    2.1624915527673716E-008 as a function 
                     !                        vs Time per Grid Point:    1.7023371002457020E-008 as subroutine
 
+!call quick_plot(grid, function_values, derivative)
+
+
+
 call converge_derivative(   grid_inout           = grid , &
                             function_values_inout= function_values ,&
-                            resolution_current   = resolution , &
+                            number_grid_points   = n_grid_points , &
                             derivative_in        = derivative ,  &
                             absolut_tol          = 10d0**(a_tol_exp) , &
                             relative_tol         = 10d0**(r_tol_exp) , &
-                            derivative_out       = derivative_converged)
+                            derivative_out       = derivative_converged, &
+                            grid_type_sub        = grid_type)
 
 
 
 call system_clock(count=tick_end)
 
 print*, "Time elapsed: ", (tick_end - tick_start) / real(tick_rate, 8)
-print*, "Time per Grid Point: ", (tick_end - tick_start) / (((x2 - x1) / resolution) + 1d0 ) / real(tick_rate, 8)
+print*, "Time per Grid Point: ", (tick_end - tick_start) / n_grid_points / real(tick_rate, 8)
 
 call quick_plot(grid, function_values, derivative_converged)
 
@@ -73,18 +85,19 @@ call quick_plot(grid, function_values, derivative_converged)
 
 contains 
 
-subroutine converge_derivative(grid_inout, function_values_inout, resolution_current, derivative_in, absolut_tol, relative_tol, derivative_out)
+subroutine converge_derivative(grid_inout, function_values_inout, number_grid_points, derivative_in, absolut_tol, relative_tol, derivative_out, grid_type_sub)
 
     implicit none
 
-    real(dp), allocatable, intent(in)    :: derivative_in(:)    
-    real(dp), allocatable, intent(inout) :: grid_inout(:), function_values_inout(:)
-    real(dp), allocatable, intent(out)   :: derivative_out(:)
-    real(dp), allocatable                :: derivative_working(:), derivative_old(:)
-    real(dp), intent(inout)              :: resolution_current
-    integer                              :: j
-    real(dp), intent(in)                 :: absolut_tol, relative_tol
-    logical                              :: converged
+    real(dp), allocatable, intent(in)   :: derivative_in(:)    
+    real(dp), allocatable, intent(inout):: grid_inout(:), function_values_inout(:)
+    real(dp), allocatable, intent(out)  :: derivative_out(:)
+    real(dp), allocatable               :: derivative_working(:), derivative_old(:)
+    integer(8), intent(inout)           :: number_grid_points
+    integer                             :: j
+    integer, intent(in)                 :: grid_type_sub
+    real(dp), intent(in)                :: absolut_tol, relative_tol
+    logical                             :: converged
     
 
     converged = .false.
@@ -92,37 +105,47 @@ subroutine converge_derivative(grid_inout, function_values_inout, resolution_cur
 
     derivative_working = derivative_in
 
+
     do while (.not. converged) 
         j= j+1
-        if (j >= 20 .or. size(grid_inout) > 10**7) then
+        if (j >= 22 .or. size(grid_inout) > 10**6) then
             !print *,  "maximum number of iterations reached"
             exit
         end if
 
-        call move_alloc(from=derivative_working, to= derivative_old)
+        call move_alloc(from    = derivative_working, &
+                        to      = derivative_old)
 
-        call double_grid_function(grid_inout, resolution_current, function_values_inout) ! there is no noticable benefit moving the double_function back out into a function  
-
+        call double_grid_function(  grid_inout          = grid_inout, &
+                                    number_grid_points  = number_grid_points, &
+                                    f_inout             = function_values_inout,&
+                                    grid_type_sub       = grid_type_sub) ! there is no noticable benefit moving the double_function back out into a function  
+        
+                                  
         call central_difs(  y       = function_values_inout, &
-                            h       = resolution_current, &
+                            grid_in = grid, &
                             y_prime = derivative_working)
 
-        converged = check_convergence(derivative_old, derivative_working, absolut_tol, relative_tol)
+        converged = check_convergence(y_prime_old   = derivative_old,&
+                                      y_prime_new   = derivative_working, &
+                                      abs_tol       = absolut_tol,&
+                                      rel_tol       = relative_tol)
     end do
 
     call move_alloc(from=derivative_working, to=derivative_out) 
 end subroutine converge_derivative
 
-subroutine double_grid_function(grid_inout, grid_resolution, f_inout)
+subroutine double_grid_function(grid_inout, number_grid_points, f_inout, grid_type_sub)
     real(dp), allocatable, intent(inout)    :: grid_inout(:), f_inout(:)
-    real(dp), allocatable                   :: grid_old(:), f_old(:)
+    real(dp), allocatable                   :: grid_old(:), f_old(:), delta(:)
+    integer, intent(in)                  :: grid_type_sub
 
-    !real(dp), allocatable, intent(out)   :: grid_out(:)
-    real(dp), intent(inout)              :: grid_resolution
-    real(dp)                             :: x_start, x_end
-    integer(8)                          :: n_new, n_old
+    !real(dp), allocatable, intent(out)     :: grid_out(:)
+    integer(8), intent(inout)               :: number_grid_points
+    real(dp)                                :: x_start, x_end, safty
+    integer(8)                              :: n_new, n_old
 
-    grid_resolution = grid_resolution * 0.5d0
+    number_grid_points = number_grid_points * 2 -1 ! doubles the resolution not the points
 
     call move_alloc(from=grid_inout,    to=grid_old)
     call move_alloc(from=f_inout,       to=f_old)
@@ -130,27 +153,38 @@ subroutine double_grid_function(grid_inout, grid_resolution, f_inout)
     x_start = grid_old(1)
     x_end   = grid_old(size(grid_old))
 
-    n_old = size(grid_old)
-    n_new = size(grid_old) * 2 - 1
+    n_old = size(grid_old) 
+    n_new = number_grid_points
 
-    print * , "grid points: ", n_new
+    print * , "grid points new: ", n_new
 
     allocate(grid_inout(n_new))
     allocate(f_inout(n_new))
 
     grid_inout(1: n_new: 2) =  grid_old(1 : n_old)
-    grid_inout(2: n_new: 2) = (grid_old(2 : n_old) + grid_old(1 : n_old-1) ) / 2d0
+
+    select case(grid_type_sub)
+    case(1)
+        grid_inout(2: n_new: 2) = (grid_old(2 : n_old) + grid_old(1 : n_old-1) ) / 2d0
+    case(2)
+        allocate(delta(n_old-1))
+        call random_number(delta)
+        !delta = delta + tiny(safty) 
+        delta = 0.1_dp + delta * 0.8_dp
+        grid_inout(2: n_new: 2) = grid_old(1:n_old-1) + ( delta * (grid_old(2:n_old) - grid_old(1:n_old-1)))
+    end select
+
 
     f_inout(1:n_new:2) = f_old(:)
-    f_inout(2:n_new:2) = vector_function(grid_inout(2: n_new: 2))
+    f_inout(2:n_new:2) = vector_function(grid_inout(2: n_new: 2)) 
 
 end subroutine
 
 
 logical function check_convergence(y_prime_old, y_prime_new, abs_tol, rel_tol) result(convergence)
     real(dp), allocatable, intent(in)    :: y_prime_old(:), y_prime_new(:)
-    real(dp)                             :: combined_error, epsilon_val
-    integer(8)                          :: new_size, old_size
+    real(dp)                             :: combined_error, max_delta
+    integer(8)                           :: new_size, old_size
     real(dp), intent(in)                 :: abs_tol, rel_tol
 
 
@@ -158,9 +192,12 @@ logical function check_convergence(y_prime_old, y_prime_new, abs_tol, rel_tol) r
     old_size = size(y_prime_old)
 
     convergence = .false.
-    combined_error = maxval( abs(y_prime_new(3:new_size-2:2) - y_prime_old(2:old_size-1) ) / (abs_tol + rel_tol * abs((y_prime_old(2:old_size-1)) )) )
-    print*, "Convergence: ", combined_error
+    max_delta = maxval(abs(y_prime_new(3:new_size-2:2) - y_prime_old(2:old_size-1) ))
 
+    combined_error = maxval( abs(y_prime_new(3:new_size-2:2) - y_prime_old(2:old_size-1) ) &
+                            /(abs_tol + rel_tol * abs((y_prime_old(2:old_size-1)) )) )
+    print*, "Convergence: ", combined_error
+    print*, "Max difference", max_delta
     if (combined_error < 1d0) then
         convergence = .true.
         print*, "Final Convergence: ", combined_error
@@ -174,20 +211,20 @@ elemental function vector_function(x_in) result(f)
     real(dp), intent(in) :: x_in!(:)
     real(dp)             :: f!(size(x_in))
 
-    f = sin(x_in**2)
+    f = x_in**3
      
 end function vector_function
 
 subroutine quick_plot(x, y1, y2)
     real(dp), intent(in)     :: x(:), y1(:), y2(:)
     real(dp), allocatable    :: y3(:)
-    integer                 :: j, unit_dn
+    integer                  :: j, unit_dn
 
     !allocate(y3(size(x)))
 
     ! 1. Write data to a temporary file
     open(newunit=unit_dn, file='plot_data.dat', status='replace')
-    y3 = 2*x *cos (x**2)
+    y3 = 3*x**2 !* (x**2)
 
     do j = 1, size(x)
         write(unit_dn, *) x(j), y1(j), y2(j), y3(j)
@@ -197,29 +234,85 @@ subroutine quick_plot(x, y1, y2)
     call execute_command_line("gnuplot -p -e &
         & ""set title 'Function and Derivative'; &
         & set grid; &
-        & plot 'plot_data.dat' using 1:2 with lines title 'f(x)', &
-        & '' using 1:3 with lines title 'f''(x)', &
-        & '' using 1:4 with lines title 'f''(x) analytical' "" ")
+        & plot 'plot_data.dat' using 1:2 w l title 'f(x)', &
+        & '' using 1:3 w l title 'f''(x)', &
+        & '' using 1:4 w l title 'f''(x) analytical' "" ")
 end subroutine quick_plot
 
-subroutine make_grid(x_start, x_end, grid_resolution, grid_out)
+subroutine make_grid(x_start, x_end, number_grid_points, grid_type_in, grid_out)
+    real(dp), intent(in)                :: x_start, x_end
+    integer(8), intent(in)              :: number_grid_points
+    integer, intent(in)                 :: grid_type_in
+    real(dp), allocatable, intent(out)  :: grid_out(:)
+
+    select case((grid_type_in))
+    case(1)
+        call make_grid_uniform( x_start             = x_start, &
+                                x_end               = x_end, &
+                                number_grid_points  = number_grid_points, &
+                                grid_out            = grid_out)
+    case(2)
+        call make_grid_random(  x_start             = x_start, &
+                                x_end               = x_end, &
+                                number_grid_points  = number_grid_points, &
+                                grid_out            = grid_out)
+    end select
+
+end subroutine make_grid
+
+subroutine make_grid_uniform(x_start, x_end, number_grid_points, grid_out)
     implicit none
 
-    real(dp), intent(in)                 :: x_start, x_end, grid_resolution
-    real(dp), intent(out), allocatable   :: grid_out(:)
-    integer(8)                          :: j, number_of_points
+    real(dp), intent(in)                :: x_start, x_end
+    integer(8), intent(in)              :: number_grid_points
+    real(dp)                            :: grid_resolution
+    real(dp), allocatable, intent(out)  :: grid_out(:)
+    integer(8)                          :: j
 
 
-    number_of_points = nint((x_end - x_start) / grid_resolution) + 1 !+1 includes x2
-    print * , "grid points: ", number_of_points
+    !number_of_points = nint((x_end - x_start) / grid_resolution) + 1 ! +1 includes x2
+    print * , "grid points: ", number_grid_points
+    !(number_of_points /nint((x_end - x_start))  - 1 = (1 / grid_resolution) 
+    grid_resolution  = (x_end - x_start) / (number_grid_points-1)
 
-    allocate(grid_out(number_of_points))
+
+    print*, "resolution: ", grid_resolution
+    allocate(grid_out(number_grid_points))
 
     do j = 1, size(grid_out)
         grid_out(j) = x_start + grid_resolution*(j-1)
+      !  print*, j
     end do 
 
-end subroutine make_grid
+end subroutine make_grid_uniform
+
+subroutine make_grid_random(x_start, x_end, number_grid_points, grid_out)
+    implicit none
+
+    real(dp), intent(in)                :: x_start, x_end
+    integer(8), intent(in)              :: number_grid_points
+    real(dp),allocatable, intent(out)   :: grid_out(:)
+    real(dp), allocatable               :: grid_tmp(:)
+    integer(8)                          :: j, k
+    real(dp)                            :: temp
+
+    allocate(grid_out(number_grid_points))
+    allocate(grid_tmp(number_grid_points))
+
+    !call random_number(grid_tmp)
+    !grid_out = (x_end - x_start)  * grid_tmp + x_start
+    grid_tmp(1) = x_start
+
+    do j = 2, number_grid_points
+        call random_number(temp)
+        grid_tmp(j) = grid_tmp(j-1) + temp 
+    end do
+
+    grid_out = ((grid_tmp - grid_tmp(1) )/ (grid_tmp(number_grid_points)- grid_tmp(1)) )* (x_end- x_start) + grid_tmp(1)
+
+    !print*, grid_out
+
+end subroutine make_grid_random
 
 subroutine forward_difs(x, y, h, y_prime)
     implicit none
@@ -227,7 +320,7 @@ subroutine forward_difs(x, y, h, y_prime)
     real(dp), intent(in)                 :: x(:), y(:) 
     real(dp), allocatable, intent(out)   :: y_prime(:)
     real(dp)                             :: h
-    integer(8)                          :: n_elements
+    integer(8)                           :: n_elements
     
     allocate(y_prime(size(x)))
 
@@ -241,31 +334,56 @@ subroutine forward_difs(x, y, h, y_prime)
 
 end subroutine forward_difs
 
-subroutine central_difs(y, h, y_prime)
+subroutine central_difs(y, grid_in, y_prime)
     implicit none
 
     real(dp), intent(in)                 :: y(:) 
     real(dp), allocatable, intent(out)   :: y_prime(:)
-    real(dp)                             :: h, inv_2h
+    real(dp)                             :: h
+    real(dp), intent(in)                 :: grid_in(:)
+    !real(dp), allocatable                :: dx(:)
     integer(8)                           :: n_elements
     
 
     n_elements = size(y)
     allocate(y_prime(n_elements))
-
+    !dx = grid_in(2:) - grid_in(1:size(grid_in)-1)
 
     ! first element to calculate is i=2. so we need i= 3 and i=1. Last one is i = n-1 so we need i=n and i=n-2
-    y_prime(2:n_elements-1) = (y(3:n_elements) - y(:n_elements-2)) / (2d0*h)
+    y_prime(2:n_elements-1) = (y(3:n_elements) - y(:n_elements-2)) /(grid_in(3:n_elements) - grid_in(:n_elements-2))
 
     !fix last element with backward diff
-    y_prime(n_elements) = (y(n_elements) - y(n_elements-1)) / h
+    y_prime(n_elements) = (y(n_elements) - y(n_elements-1)) / (grid_in(n_elements) - grid_in(n_elements-1))
 
     !fix first element with forward diff
-    y_prime(1) = (y(2) - y(1)) / h
+    y_prime(1) = (y(2) - y(1)) / (grid_in(2) - grid_in(1))
     
 
 end subroutine central_difs
 
+subroutine central_difs_rand(y, x, y_prime)
+    real(dp), intent(in)               :: y(:), x(:) 
+    real(dp), allocatable, intent(out) :: y_prime(:)
+    real(dp)                           :: h1, h2
+    integer(8)                         :: n, i
+
+    n = size(y)
+    allocate(y_prime(n))
+
+    ! Interior points: Weighted Non-Uniform Central Difference
+    do i = 2, n-1
+        h1 = x(i) - x(i-1)
+        h2 = x(i+1) - x(i)
+        
+        ! 2nd order formula for non-uniform grids
+        y_prime(i) = (h1**2 * y(i+1) - h2**2 * y(i-1) + (h2**2 - h1**2) * y(i)) / &
+                     (h1 * h2 * (h1 + h2))
+    end do
+
+    ! Boundaries: 1st order Forward/Backward
+    y_prime(1) = (y(2) - y(1)) / (x(2) - x(1))
+    y_prime(n) = (y(n) - y(n-1)) / (x(n) - x(n-1))
+end subroutine central_difs_rand
 
 end program differenzieren
 

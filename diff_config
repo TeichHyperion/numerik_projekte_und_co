@@ -1,5 +1,6 @@
 -5       ! lower bound
  5       ! lower bound
- 0.1     ! intitial resolution
- -7 ! absolute tolerance exponent
- -7 ! relative tolerance exponent
+ 1       ! grid type (1= uniform, 2=random, 3=log, 4=adaptive)
+ 3    ! intitial grid points intitial resolution
+ -6 ! absolute tolerance exponent
+ -6 ! relative tolerance exponent
