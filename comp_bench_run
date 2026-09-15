@@ -1,0 +1,1 @@
+gfortran benchmark.F90 differentiator_functions.o -o benchmark -march=native -Ofast  && ./benchmark.F90

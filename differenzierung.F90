@@ -42,10 +42,10 @@ call central_difs_4th_uniform(  y       = function_values, &
                         ! h       = resolution, &
                                 y_prime = derivative)
 
-!call central_difs(  y       = function_values, &
-!                    grid_in = grid ,&
-!                   ! h       = resolution, &
-!                    y_prime = derivative)
+call central_difs(  y       = function_values, &
+                    grid_in = grid ,&
+                   ! h       = resolution, &
+                    y_prime = derivative)
                     ! 15% faster as subroutine: Time per Grid Point:    2.1624915527673716E-008 as a function 
                     !                        vs Time per Grid Point:    1.7023371002457020E-008 as subroutine
 
